@@ -24,7 +24,7 @@ var (
 	abciResponsesKey = []byte("abciResponsesKey")
 )
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------
 
 // State encapsulates the state of the Tendermint core blockchain.
 // NOTE: The state struct is not goroutine-safe.
@@ -37,17 +37,18 @@ type State struct {
 	GenesisDoc *types.GenesisDoc
 	ChainID    string
 
-	// updated at end of SetBlockAndValidators
-	LastBlockHeight int // Genesis state has this set to 0.  So, Block(H=0) does not exist.
+	// Updated at end of SetBlockAndValidators
+	// Genesis state has this set to 0.  So, Block(H=0) does not exist
+	LastBlockHeight int
 	LastBlockID     types.BlockID
 	LastBlockTime   time.Time
 	Validators      *types.ValidatorSet
-	LastValidators  *types.ValidatorSet // block.LastCommit validated against this
-
+	// block.LastCommit validated against LastValidators
+	LastValidators *types.ValidatorSet
 	// AppHash is updated after Commit
 	AppHash []byte
 
-	TxIndexer txindex.TxIndexer `json:"-"` // Transaction indexer.
+	TxIndexer txindex.TxIndexer `json:"-"` // Transaction indexer
 
 	logger log.Logger
 }
@@ -70,7 +71,8 @@ func loadState(db dbm.DB, key []byte) *State {
 	wire.ReadBinaryPtr(&s, r, 0, n, err)
 	if *err != nil {
 		// NOTE: DATA HAS BEEN CORRUPTED OR THE SPEC HAS CHANGED
-		cmn.Exit(cmn.Fmt("LoadState: Data has been corrupted or its spec has changed: %v\n", *err))
+		cmn.Exit(cmn.Fmt(`LoadState: Data has been corrupted or
+its spec has changed: %v\n`, *err))
 	}
 
 	// TODO: ensure that buf is completely read.
@@ -82,9 +84,10 @@ func (s *State) SetLogger(l log.Logger) {
 	s.logger = l
 }
 
-// Copy returns an independent copy of the state except for the TxIndexer field.
-// TODO: Create a value copy of TxIndexer to provide a fully independent copy of
-// the state.
+// Copy returns an independent copy of the state except for the
+// TxIndexer field.
+// TODO: Create a value copy of TxIndexer to provide a fully independent
+// copy of the state.
 func (s *State) Copy() *State {
 	return &State{
 		db:              s.db,
@@ -124,15 +127,18 @@ func (s *State) LoadABCIResponses() *ABCIResponses {
 		r, n, err := bytes.NewReader(buf), new(int), new(error)
 		wire.ReadBinaryPtr(abciResponses, r, 0, n, err)
 		if *err != nil {
-			// NOTE: DATA HAS BEEN CORRUPTED OR THE SPEC HAS CHANGED
-			cmn.Exit(cmn.Fmt("LoadABCIResponses: Data has been corrupted or its spec has changed: %v\n", *err))
+			// NOTE: DATA HAS BEEN CORRUPTED OR THE SPEC HAS
+			// CHANGED
+			cmn.Exit(cmn.Fmt(`LoadABCIResponses: Data has been
+corrupted or its spec has changed: %v\n`, *err))
 		}
 		// TODO: ensure that buf is completely read.
 	}
 	return abciResponses
 }
 
-// Equals compares two states for equality by comparing the byte representation.
+// Equals compares two states for equality by comparing the byte
+// representation.
 func (s *State) Equals(s2 *State) bool {
 	return bytes.Equal(s.Bytes(), s2.Bytes())
 }
@@ -147,10 +153,11 @@ func (s *State) Bytes() []byte {
 	return buf.Bytes()
 }
 
-// SetBlockAndValidators mutates state variables to match block and validators
-// after running EndBlock.
+// SetBlockAndValidators mutates state variables to match block and
+// validators after running EndBlock.
 func (s *State) SetBlockAndValidators(header *types.Header,
-	blockPartsHeader types.PartSetHeader, abciResponses *ABCIResponses) {
+	blockPartsHeader types.PartSetHeader,
+	abciResponses *ABCIResponses) {
 
 	// copy the valset so we can apply changes from EndBlock
 	// and update s.LastValidators and s.Validators
@@ -168,7 +175,8 @@ func (s *State) SetBlockAndValidators(header *types.Header,
 	nextValSet.IncrementAccum(1)
 
 	s.setBlockAndValidators(header.Height,
-		types.BlockID{header.Hash(), blockPartsHeader}, header.Time,
+		types.BlockID{header.Hash(), blockPartsHeader},
+		header.Time,
 		prevValSet, nextValSet)
 }
 
@@ -184,12 +192,14 @@ func (s *State) setBlockAndValidators(
 }
 
 // GetValidators returns LastValidators and Validators.
-func (s *State) GetValidators() (*types.ValidatorSet, *types.ValidatorSet) {
+func (s *State) GetValidators() (*types.ValidatorSet,
+	*types.ValidatorSet) {
+
 	return s.LastValidators, s.Validators
 }
 
-// GetState loads the most recent state from "state" db or creates a new one
-// from genesis. If a new state is created it is also saved to disk.
+// GetState loads the most recent state from "state" db or creates a new
+// one from genesis. If a new state is created it is also saved to disk.
 func GetState(stateDB dbm.DB, genesisFile string) *State {
 	state := LoadState(stateDB)
 	if state == nil {
@@ -200,7 +210,7 @@ func GetState(stateDB dbm.DB, genesisFile string) *State {
 	return state
 }
 
-//--------------------------------------------------
+//------------------------------------------------------------------------
 
 // ABCIResponses holds intermediate state during block processing
 type ABCIResponses struct {
@@ -212,7 +222,8 @@ type ABCIResponses struct {
 	txs types.Txs // reference for indexing results by hash
 }
 
-// NewABCIResponses creates an initialised but empty ABCIResponses pointer.
+// NewABCIResponses creates an initialised but empty ABCIResponses
+// pointer.
 func NewABCIResponses(block *types.Block) *ABCIResponses {
 	return &ABCIResponses{
 		Height:    block.Height,
@@ -231,10 +242,11 @@ func (a *ABCIResponses) Bytes() []byte {
 	return buf.Bytes()
 }
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------
 // Genesis
 
-// MakeGenesisStateFromFile reads and unmarshals state from the given file.
+// MakeGenesisStateFromFile reads and unmarshals state from the given
+// file.
 //
 // Used during replay and in tests.
 func MakeGenesisStateFromFile(db dbm.DB, genDocFile string) *State {
@@ -285,6 +297,7 @@ func MakeGenesisState(db dbm.DB, genDoc *types.GenesisDoc) *State {
 		Validators:      types.NewValidatorSet(validators),
 		LastValidators:  types.NewValidatorSet(nil),
 		AppHash:         genDoc.AppHash,
-		TxIndexer:       &null.TxIndex{}, // we do not need indexer during replay and in tests
+		// we do not need indexer during replay and in tests
+		TxIndexer: &null.TxIndex{},
 	}
 }
