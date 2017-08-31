@@ -7,11 +7,13 @@ import (
 	"time"
 
 	abci "github.com/tendermint/abci/types"
+
+	wire "github.com/tendermint/go-wire"
+
 	cmn "github.com/tendermint/tmlibs/common"
 	dbm "github.com/tendermint/tmlibs/db"
 	"github.com/tendermint/tmlibs/log"
 
-	wire "github.com/tendermint/go-wire"
 	"github.com/tendermint/tendermint/state/txindex"
 	"github.com/tendermint/tendermint/state/txindex/null"
 	"github.com/tendermint/tendermint/types"
@@ -24,7 +26,8 @@ var (
 
 //-----------------------------------------------------------------------------
 
-// NOTE: not goroutine-safe.
+// State encapsulates the state of the Tendermint core blockchain.
+// NOTE: The state struct is not goroutine-safe.
 type State struct {
 	// mtx for writing to db
 	mtx sync.Mutex
@@ -49,6 +52,8 @@ type State struct {
 	logger log.Logger
 }
 
+// LoadState pulls the data from the db argument and puts it into
+// the returned state object.
 func LoadState(db dbm.DB) *State {
 	return loadState(db, stateKey)
 }
@@ -56,24 +61,30 @@ func LoadState(db dbm.DB) *State {
 func loadState(db dbm.DB, key []byte) *State {
 	s := &State{db: db, TxIndexer: &null.TxIndex{}}
 	buf := db.Get(key)
+
 	if len(buf) == 0 {
 		return nil
-	} else {
-		r, n, err := bytes.NewReader(buf), new(int), new(error)
-		wire.ReadBinaryPtr(&s, r, 0, n, err)
-		if *err != nil {
-			// DATA HAS BEEN CORRUPTED OR THE SPEC HAS CHANGED
-			cmn.Exit(cmn.Fmt("LoadState: Data has been corrupted or its spec has changed: %v\n", *err))
-		}
-		// TODO: ensure that buf is completely read.
 	}
+
+	r, n, err := bytes.NewReader(buf), new(int), new(error)
+	wire.ReadBinaryPtr(&s, r, 0, n, err)
+	if *err != nil {
+		// NOTE: DATA HAS BEEN CORRUPTED OR THE SPEC HAS CHANGED
+		cmn.Exit(cmn.Fmt("LoadState: Data has been corrupted or its spec has changed: %v\n", *err))
+	}
+
+	// TODO: ensure that buf is completely read.
 	return s
 }
 
+// SetLogger sets the logger on this state.
 func (s *State) SetLogger(l log.Logger) {
 	s.logger = l
 }
 
+// Copy returns an independent copy of the state except for the TxIndexer field.
+// TODO: Create a value copy of TxIndexer to provide a fully independent copy of
+// the state.
 func (s *State) Copy() *State {
 	return &State{
 		db:              s.db,
@@ -90,19 +101,21 @@ func (s *State) Copy() *State {
 	}
 }
 
+// Save writes the state to disk.
 func (s *State) Save() {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
 	s.db.SetSync(stateKey, s.Bytes())
 }
 
-// Sets the ABCIResponses in the state and writes them to disk
+// SaveABCIResponses sets them in the state and writes them to disk
 // in case we crash after app.Commit and before s.Save()
 func (s *State) SaveABCIResponses(abciResponses *ABCIResponses) {
 	// save the validators to the db
 	s.db.SetSync(abciResponsesKey, abciResponses.Bytes())
 }
 
+// LoadABCIResponses reads the responses from disk.
 func (s *State) LoadABCIResponses() *ABCIResponses {
 	abciResponses := new(ABCIResponses)
 
@@ -111,7 +124,7 @@ func (s *State) LoadABCIResponses() *ABCIResponses {
 		r, n, err := bytes.NewReader(buf), new(int), new(error)
 		wire.ReadBinaryPtr(abciResponses, r, 0, n, err)
 		if *err != nil {
-			// DATA HAS BEEN CORRUPTED OR THE SPEC HAS CHANGED
+			// NOTE: DATA HAS BEEN CORRUPTED OR THE SPEC HAS CHANGED
 			cmn.Exit(cmn.Fmt("LoadABCIResponses: Data has been corrupted or its spec has changed: %v\n", *err))
 		}
 		// TODO: ensure that buf is completely read.
@@ -119,10 +132,12 @@ func (s *State) LoadABCIResponses() *ABCIResponses {
 	return abciResponses
 }
 
+// Equals compares two states for equality by comparing the byte representation.
 func (s *State) Equals(s2 *State) bool {
 	return bytes.Equal(s.Bytes(), s2.Bytes())
 }
 
+// Bytes transforms a state into a byte slice.
 func (s *State) Bytes() []byte {
 	buf, n, err := new(bytes.Buffer), new(int), new(error)
 	wire.WriteBinary(s, buf, n, err)
@@ -132,9 +147,10 @@ func (s *State) Bytes() []byte {
 	return buf.Bytes()
 }
 
-// Mutate state variables to match block and validators
-// after running EndBlock
-func (s *State) SetBlockAndValidators(header *types.Header, blockPartsHeader types.PartSetHeader, abciResponses *ABCIResponses) {
+// SetBlockAndValidators mutates state variables to match block and validators
+// after running EndBlock.
+func (s *State) SetBlockAndValidators(header *types.Header,
+	blockPartsHeader types.PartSetHeader, abciResponses *ABCIResponses) {
 
 	// copy the valset so we can apply changes from EndBlock
 	// and update s.LastValidators and s.Validators
@@ -167,12 +183,13 @@ func (s *State) setBlockAndValidators(
 	s.LastValidators = prevValSet
 }
 
+// GetValidators returns LastValidators and Validators.
 func (s *State) GetValidators() (*types.ValidatorSet, *types.ValidatorSet) {
 	return s.LastValidators, s.Validators
 }
 
-// Load the most recent state from "state" db,
-// or create a new one (and save) from genesis.
+// GetState loads the most recent state from "state" db or creates a new one
+// from genesis. If a new state is created it is also saved to disk.
 func GetState(stateDB dbm.DB, genesisFile string) *State {
 	state := LoadState(stateDB)
 	if state == nil {
@@ -184,8 +201,8 @@ func GetState(stateDB dbm.DB, genesisFile string) *State {
 }
 
 //--------------------------------------------------
-// ABCIResponses holds intermediate state during block processing
 
+// ABCIResponses holds intermediate state during block processing
 type ABCIResponses struct {
 	Height int
 
@@ -195,6 +212,7 @@ type ABCIResponses struct {
 	txs types.Txs // reference for indexing results by hash
 }
 
+// NewABCIResponses creates an initialised but empty ABCIResponses pointer.
 func NewABCIResponses(block *types.Block) *ABCIResponses {
 	return &ABCIResponses{
 		Height:    block.Height,
@@ -203,7 +221,7 @@ func NewABCIResponses(block *types.Block) *ABCIResponses {
 	}
 }
 
-// Serialize the ABCIResponse
+// Bytes serialises the ABCIResponse.
 func (a *ABCIResponses) Bytes() []byte {
 	buf, n, err := new(bytes.Buffer), new(int), new(error)
 	wire.WriteBinary(*a, buf, n, err)

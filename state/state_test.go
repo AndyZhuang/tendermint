@@ -12,13 +12,21 @@ import (
 	"github.com/tendermint/tmlibs/log"
 )
 
-func TestStateCopyEquals(t *testing.T) {
-	config := cfg.ResetTestRoot("state_")
+func setupTestCase(t *testing.T) (func(t *testing.T), dbm.DB, *State) {
 
-	// Get State db
+	config := cfg.ResetTestRoot("state_")
 	stateDB := dbm.NewDB("state", config.DBBackend, config.DBDir())
 	state := GetState(stateDB, config.GenesisFile())
 	state.SetLogger(log.TestingLogger())
+
+	tearDown := func(t *testing.T) {}
+
+	return tearDown, stateDB, state
+}
+
+func TestStateCopy(t *testing.T) {
+	tearDown, _, state := setupTestCase(t)
+	defer tearDown(t)
 
 	stateCopy := state.Copy()
 
@@ -26,7 +34,7 @@ func TestStateCopyEquals(t *testing.T) {
 		t.Fatal("expected state and its copy to be identical. got %v\n expected %v\n", stateCopy, state)
 	}
 
-	stateCopy.LastBlockHeight += 1
+	stateCopy.LastBlockHeight++
 
 	if state.Equals(stateCopy) {
 		t.Fatal("expected states to be different. got same %v", state)
@@ -34,13 +42,10 @@ func TestStateCopyEquals(t *testing.T) {
 }
 
 func TestStateSaveLoad(t *testing.T) {
-	config := cfg.ResetTestRoot("state_")
-	// Get State db
-	stateDB := dbm.NewDB("state", config.DBBackend, config.DBDir())
-	state := GetState(stateDB, config.GenesisFile())
-	state.SetLogger(log.TestingLogger())
+	tearDown, stateDB, state := setupTestCase(t)
+	defer tearDown(t)
 
-	state.LastBlockHeight += 1
+	state.LastBlockHeight++
 	state.Save()
 
 	loadedState := LoadState(stateDB)
@@ -50,12 +55,9 @@ func TestStateSaveLoad(t *testing.T) {
 }
 
 func TestABCIResponsesSaveLoad(t *testing.T) {
+	tearDown, _, state := setupTestCase(t)
+	defer tearDown(t)
 	assert := assert.New(t)
-
-	config := cfg.ResetTestRoot("state_")
-	stateDB := dbm.NewDB("state", config.DBBackend, config.DBDir())
-	state := GetState(stateDB, config.GenesisFile())
-	state.SetLogger(log.TestingLogger())
 
 	state.LastBlockHeight += 1
 
